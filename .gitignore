@@ -1,0 +1,36 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.pidb
+*.log
+*.vs/
+*.csproj.user
+*.dotnet
+
+# Python (venv, cache)
+venv/
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.env
+*.egg-info/
+dist/
+build/
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.sln.ide
+
+# Logs e dados temporários
+logs/
+*.tmp
+*.temp
