@@ -4,7 +4,7 @@ import json
 import pickle
 import traceback
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from collections import deque
 
 import cv2
 import numpy as np
@@ -19,6 +19,10 @@ MODEL_PATH = "petzy_model.keras"          # Nome do arquivo do modelo
 CLASS_INDICES_PATH = "class_indices.json" # Mapeamento classes -> índices
 MODEL_INFO_PATH = "model_info.pkl"        # Metadados (input_size, etc.)
 
+# Parâmetros de suavização e decisão
+HISTORY_LEN = 5          # número de predições anteriores para suavizar
+THRESHOLD = 0.7          # limiar para classificar como "dor" (valores > 0.7)
+
 # ------------------------------------------------------------
 # Inicialização do FastAPI e carregamento do modelo
 # ------------------------------------------------------------
@@ -29,6 +33,9 @@ model = None
 input_size = 224
 idx_to_class = {}
 class_indices = {}
+
+# Fila para suavização temporal dos scores de dor
+score_history = deque(maxlen=HISTORY_LEN)
 
 def load_artifacts():
     """Carrega modelo, mapeamento de classes e metadados."""
@@ -76,8 +83,6 @@ try:
 except Exception as e:
     print(f"FALHA CRÍTICA: {e}")
     print("O serviço não funcionará corretamente sem os arquivos do modelo.")
-    # Se preferir, pode deixar o serviço rodando com mock:
-    # model = None
 
 # ------------------------------------------------------------
 # Funções auxiliares
@@ -123,7 +128,7 @@ def get_risk_level(score: float) -> str:
 async def analyze_frame(file: UploadFile = File(...)):
     """
     Recebe uma imagem (multipart/form-data) e retorna análise de dor.
-    Formato de resposta compatível com o backend C#.
+    Utiliza suavização temporal e limiar mais alto para reduzir falsos positivos.
     """
     if model is None:
         raise HTTPException(
@@ -140,25 +145,27 @@ async def analyze_frame(file: UploadFile = File(...)):
         # 2. Pré-processar
         img_tensor, (h, w) = preprocess_image(image_bytes)
 
-        # 3. Inferência
-        # Saída do modelo: probabilidade da classe positiva (dor)
-        proba = float(model.predict(img_tensor)[0][0])   # sigmoid output
-        # Se o modelo tiver duas saídas softmax, use:
-        # proba = float(model.predict(img_tensor)[0][class_indices.get("dor", 1)])
+        # 3. Inferência – probabilidade da classe "dor" (0 a 1)
+        raw_proba = float(model.predict(img_tensor)[0][0])   # saída sigmoid
 
-        # 4. Determinar classe e score de risco
-        predicted_class = "dor" if proba >= 0.5 else "sem_dor"
-        risk_score = proba if predicted_class == "dor" else 1 - proba
+        # 4. Suavização temporal: média móvel dos últimos scores
+        score_history.append(raw_proba)
+        smoothed_proba = sum(score_history) / len(score_history)
+
+        # 5. Decisão com limiar ajustado (THRESHOLD)
+        predicted_class = "dor" if smoothed_proba >= THRESHOLD else "sem_dor"
+        # O score de risco é a probabilidade suavizada, mas pode ser invertido se a classe for "sem_dor"
+        risk_score = smoothed_proba if predicted_class == "dor" else 1 - smoothed_proba
         risk_level = get_risk_level(risk_score)
 
-        # 5. Montar resposta no formato esperado pelo backend
+        # 6. Montar resposta no formato esperado pelo backend
         response = {
             "animals": [
                 {
-                    "trackId": 1,                     # fixo, sem tracking
-                    "species": "desconhecido",        # você pode melhorar depois
-                    "bbox": [0, 0, w, h],            # imagem inteira
-                    "faceScore": risk_score,          # mesmo score por enquanto
+                    "trackId": 1,
+                    "species": "desconhecido",
+                    "bbox": [0, 0, w, h],
+                    "faceScore": risk_score,
                     "riskScore": risk_score,
                     "riskLevel": risk_level
                 }
@@ -166,15 +173,14 @@ async def analyze_frame(file: UploadFile = File(...)):
             "processedAt": datetime.now(timezone.utc).isoformat()
         }
 
-        # Log opcional para debug
-        print(f"✅ Análise concluída: classe={predicted_class}, riskScore={risk_score:.3f}")
+        # Log para debug
+        print(f"✅ Análise: raw={raw_proba:.3f} smoothed={smoothed_proba:.3f} -> classe={predicted_class}, riskScore={risk_score:.3f}")
 
         return response
 
     except HTTPException:
         raise
     except Exception as e:
-        # Log detalhado do erro no console do servidor
         print("❌ Erro durante o processamento:")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
