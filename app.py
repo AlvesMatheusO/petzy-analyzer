@@ -112,9 +112,9 @@ def preprocess_image_crop(image_bytes: bytes, bbox):
     return batch, (crop.shape[1], crop.shape[0])  # (largura, altura)
 
 def get_risk_level(score: float) -> str:
-    if score < 0.3:
+    if score < 0.35:
         return "normal"
-    elif score < 0.7:
+    elif score < 0.65:
         return "atencao"
     else:
         return "critico"
