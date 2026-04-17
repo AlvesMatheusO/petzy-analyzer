@@ -35,4 +35,4 @@ logs/
 *.tmp
 *.temp
 
-petzy_model.h5
+.petzy_model.h5
