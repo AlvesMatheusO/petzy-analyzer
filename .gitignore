@@ -34,3 +34,5 @@ Thumbs.db
 logs/
 *.tmp
 *.temp
+
+petzy_model.h5
