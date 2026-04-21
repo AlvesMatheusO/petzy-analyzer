@@ -34,3 +34,7 @@ Thumbs.db
 logs/
 *.tmp
 *.temp
+
+*.h5
+*.pt
+*.pth
