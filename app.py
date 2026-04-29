@@ -1,4 +1,3 @@
-# app.py - Serviço de análise de dor com detecção de animais (YOLO)
 import os
 import json
 import pickle
@@ -9,6 +8,7 @@ from collections import deque
 import cv2
 import numpy as np
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.efficientnet_v2 import preprocess_input
 from ultralytics import YOLO
@@ -21,15 +21,22 @@ CLASS_INDICES_PATH = "class_indices.json"
 MODEL_INFO_PATH = "model_info.pkl"
 
 YOLO_MODEL_PATH = "yolov8n.pt"            # YOLO COCO (cão/gato)
-# Para faces específicas, troque por um modelo treinado, ex: "dog_cat_face.pt"
-
-HISTORY_LEN = 5          # suavização temporal
-THRESHOLD = 0.7           # limiar para classificar como dor
+HISTORY_LEN = 5
+THRESHOLD = 0.7
 
 # ------------------------------------------------------------
 # Inicialização do FastAPI
 # ------------------------------------------------------------
 app = FastAPI(title="Petzy Pain Analyzer")
+
+# 🔧 HABILITAR CORS - necessário para o frontend rodar em origem diferente
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Em produção, restrinja para o domínio do seu frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Globais
 model = None          # classificador de dor
@@ -133,10 +140,9 @@ async def analyze_frame(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="Arquivo vazio")
 
         # 1. YOLO detecta cães (classe 16) e gatos (classe 15) do COCO
-        # Converter bytes para array para o YOLO
         nparr = np.frombuffer(image_bytes, np.uint8)
         img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        results = yolo(img_cv)  # lista de Results
+        results = yolo(img_cv)
         detections = results[0].boxes
         if detections is None:
             animals = []
@@ -155,9 +161,8 @@ async def analyze_frame(file: UploadFile = File(...)):
                     try:
                         img_tensor, (crop_w, crop_h) = preprocess_image_crop(image_bytes, bbox)
                         proba_sem_dor = float(model.predict(img_tensor)[0][0])
-                        proba_dor = 1 - proba_sem_dor   # corrigido
+                        proba_dor = 1 - proba_sem_dor
 
-                        # Suavização (opcional, pode ser por animal)
                         score_history.append(proba_dor)
                         smoothed = sum(score_history) / len(score_history)
 
@@ -166,12 +171,13 @@ async def analyze_frame(file: UploadFile = File(...)):
                         risk_level = get_risk_level(risk_score)
 
                         animals.append({
-                            "trackId": 1,   # simplificado
+                            "trackId": 1,
                             "species": species,
-                            "bbox": bbox,
-                            "faceScore": risk_score,   # mesmo score
+                            "bbox": bbox,           # [x, y, w, h] em pixels (relativo à imagem original)
+                            "faceScore": risk_score,
                             "riskScore": risk_score,
-                            "riskLevel": risk_level
+                            "riskLevel": risk_level,
+                            "confidence": 0.85      # valor fictício, pode ser extraído do modelo se disponível
                         })
                     except Exception as e:
                         print(f"Erro ao classificar detecção: {e}")
