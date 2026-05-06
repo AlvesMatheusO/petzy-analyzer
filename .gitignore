@@ -1,6 +1,9 @@
 # .NET
 bin/
 obj/
+models/
+*.keras
+*.pkl
 *.user
 *.suo
 *.cache
