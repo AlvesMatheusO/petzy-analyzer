@@ -1,6 +1,9 @@
 # .NET
 bin/
 obj/
+dataset/
+models_pain/ 
+checkpoints/ 
 models/
 *.keras
 *.pkl
